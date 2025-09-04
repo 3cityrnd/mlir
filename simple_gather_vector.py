@@ -6,6 +6,18 @@ import triton
 import triton.language as tl
 
 
+def init_npu():    
+        try:
+            import torch_npu
+            return torch_npu.npu.is_available()
+        except ImportError:
+            return False
+
+npu_on = init_npu()
+dev = 'npu' if npu_on else 'cuda'
+
+print(f'NPU : {npu_on}')
+
 @triton.jit
 def simple_gather_kernel_for_vector(input, indices, output, BLOCK_SIZE: tl.constexpr, N: tl.constexpr):
     pid = tl.program_id(0)
@@ -37,7 +49,7 @@ def run(kern,VEC_SIZE=10000, BLOCK_SIZE=1024, dev='cuda'):
 
 
 
-PARAM = { 'VEC_SIZE':10000, 'BLOCK_SIZE':1024 , 'dev': 'cuda'}
+PARAM = { 'VEC_SIZE':10000, 'BLOCK_SIZE':1024 , 'dev': dev}
 run(simple_gather_kernel_for_vector,**PARAM)  
 
 
