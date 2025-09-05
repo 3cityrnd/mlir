@@ -22,14 +22,14 @@ print(f'NPU : {npu_on}')
 def load_1(input_ptr : tl.tensor , N : int, D : int , output_ptr : tl.tensor , BLOCK_SIZE: tl.constexpr):
     pid_nd = tl.program_id(0)
     offset_nd = pid_nd * BLOCK_SIZE + tl.arange(0,BLOCK_SIZE)
-    offset_d = offset_nd % D 
-    offset_n = offset_nd // D 
-    mask_block = offset_nd < N * D 
+    offset_d = offset_nd % D
+    offset_n = offset_nd // D
+    mask_block = offset_nd < N * D
     input_th = input_ptr + offset_n * D + offset_d 
     output_th = output_ptr + offset_n * D + offset_d
     
     in_val = tl.load(input_th, mask=mask_block,other=0)
-    result = in_val * 99;
+    result = in_val * 99
     tl.store(output_th, result, mask=mask_block)
 
 
@@ -42,7 +42,14 @@ def run(kern, BLOCK_SIZE, dev):
     total = N * D  
     grid = (triton.cdiv(total, BLOCK_SIZE),)
     kern[grid](input, N, D, output, BLOCK_SIZE)
-     
+
+
+    input_cpu = input.to('cpu')
+    input_cpu = input_cpu * 99
+    output_cpu = output.to('cpu')
+
+
+    assert torch.allclose(input_cpu, output_cpu)
     print("Pass correctness test!")        
 
 
