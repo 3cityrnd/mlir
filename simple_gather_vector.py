@@ -52,4 +52,3 @@ def run(kern,VEC_SIZE=10000, BLOCK_SIZE=1024, dev='cuda'):
 PARAM = { 'VEC_SIZE':10000, 'BLOCK_SIZE':1024 , 'dev': dev}
 run(simple_gather_kernel_for_vector,**PARAM)  
 
-

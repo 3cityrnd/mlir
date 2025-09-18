@@ -43,10 +43,10 @@ def test_index_select(src_shape, dim, indice_shape, dtype):
         out = torch.empty(tuple(sz), dtype=x0.dtype, device=device)
         g_stride = x0.stride(dim)
         indice_length=indices.numel()
-        num_vec_core=1
+        num_vec_core=80
         g_block = (indice_length - 1) // num_vec_core + 1
         enable_multi_buffer=True
-        available_ub_space = (125 * 1024) // (x0.element_size() * (2 if enable_multi_buffer else 1))
+        available_ub_space = (128 * 1024) // (x0.element_size() * (2 if enable_multi_buffer else 1))
        
         if g_stride * 2 < available_ub_space:
             other_block = g_stride
@@ -54,8 +54,6 @@ def test_index_select(src_shape, dim, indice_shape, dtype):
         else:
             other_block = available_ub_space
             g_block_sub = 1
-        print(f'g_stride = {g_stride}, indice_length= {indice_length}, g_block_sub = {g_block_sub}, other_block = {other_block}', flush=True)
-
         handle[num_vec_core, 1, 1](x0, indices, out, dim, g_stride = g_stride, indice_length=indice_length, 
         g_block = g_block, g_block_sub = g_block_sub, other_block = other_block)
         return out
@@ -63,11 +61,10 @@ def test_index_select(src_shape, dim, indice_shape, dtype):
     device = torch.device('npu:0')
     x0 = generate_tensor(shape=src_shape, dtype=dtype).to(device)
     indices = torch.randint(0, src_shape[dim], size=indice_shape, dtype=torch.int32, device=device)
-    dim = dim
 
-    torch_ref = torch_func(x0, dim, indices).to('cpu')
-    triton_cal = triton_func(x0, dim, indices, origin_index_select).to('cpu')
-    assert torch.allclose(torch_ref, triton_cal)
+    torch_ref = torch_func(x0, dim, indices).to(device)
+    triton_cal = triton_func(x0, dim, indices, origin_index_select)
+    assert torch.equal(torch_ref, triton_cal)
     print("Test done")
 
-test_index_select((1023,673), 0, (1327,), 'float32')
+test_index_select((3200,512), 0, (1024*128,), 'float32')
