@@ -40,7 +40,7 @@ def test_index_select(src_shape, dim, indice_shape, dtype):
     def triton_func(x0, dim, indices, handle):
         sz = list(x0.shape)
         sz[dim]=len(indices)
-        out = torch.empty(tuple(sz), dtype=x0.dtype)
+        out = torch.empty(tuple(sz), dtype=x0.dtype).to('npu:0')
         g_stride = x0.stride(dim)
         indice_length=indices.numel()
         num_vec_core=80
