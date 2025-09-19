@@ -29,4 +29,4 @@ mapfile -t run_dirs < <(
 )
 
 source ./venv/bin/activate
-./ci_check_diffs.sh "${run_dirs[@]}" | python3 parse_to_pdf.py -o report_${start_time}.pdf
+./ci_check_diffs.sh "${run_dirs[@]}" | python3 parse_to_pdf.py -o ./reports/report_${start_time}.pdf
