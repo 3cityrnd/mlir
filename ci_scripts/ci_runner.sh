@@ -39,7 +39,7 @@ echo "Copying scripts to docker container"
 docker cp "$(dirname "$0")/ci_build_job.sh" "$CONTAINER_NAME":/root/ci_build_job.sh
 docker cp "$(dirname "$0")/ci_run_tests.sh" "$CONTAINER_NAME":/root/ci_run_tests.sh
 docker cp "$(dirname "$0")/run_test.sh" "$CONTAINER_NAME":/root/run_test.sh
-docker cp "$(dirname "$0")/tests/." "$CONTAINER_NAME":/root/tests/
+docker cp "../tests/." "$CONTAINER_NAME":/root/tests/
 
 
 echo "Building ascend triton"
