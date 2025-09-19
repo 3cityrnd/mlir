@@ -2,11 +2,18 @@
 """
 Multi-page PDF generator from your Bash comparison output.
 
-Format:
+Top area on the FIRST table page:
 - Title (centered)
-- node version: <first non-empty input line>  (left-aligned, under title)
-- Colored results table (PASS=green, FAIL=red, MISSING=gray), paginated if needed.
-- "Artifact changes details" section, in this exact format, paginated across pages:
+- node version: <first non-empty line> (left-aligned)
+- git info: (left-aligned), lines taken from the block between:
+      START GIT INFO
+      ... (your lines)
+      END GIT INFO
+  (If the git block is missing, it's skipped.)
+
+Then:
+- Colored results table (PASS=green, FAIL=red, MISSING=gray), paginated as needed.
+- "Artifact changes details" section, paginated, format:
     NEW_RUN vs OLD_RUN   (bold, slightly larger)
     test1                (bold)
     no changes
@@ -17,22 +24,9 @@ Format:
       path...
     CHANGED:
       path...
-
-Input (from your Bash script):
-  Node v20.14.0
-  NEW_RUN vs OLD_RUN
-  <testname>
-  NEW_STATUS vs OLD_STATUS
-  ADDED  path...
-  REMOVED  path...
-  CHANGED  path...
-  [blank line]
-  (repeat...)
-  [blank line]
-  NEW_RUN vs ANOTHER_OLD_RUN
 """
 
-import argparse, sys, textwrap
+import argparse, sys, textwrap, re
 from dataclasses import dataclass, field
 from typing import List, Dict, Tuple, Optional
 
@@ -67,6 +61,38 @@ def is_status_line(s: str) -> bool:
 
 def is_header_line(s: str) -> bool:
     return " vs " in s and not is_status_line(s)
+
+def extract_node_and_git(raw: str) -> tuple[str, List[str], str]:
+    """
+    Returns (node_info, git_lines, remainder_text_without_node_or_git)
+    - node_info: first non-empty line (or "")
+    - git_lines: lines between START GIT INFO and END GIT INFO (trimmed), or []
+    - remainder: raw text with node line and git block removed
+    """
+    lines = raw.splitlines()
+    # Node: first non-empty
+    node_info = ""
+    idx = 0
+    while idx < len(lines) and not lines[idx].strip():
+        idx += 1
+    if idx < len(lines):
+        node_info = lines[idx].strip()
+        # remove node line
+        del lines[idx]
+    # Git block
+    text_wo_node = "\n".join(lines)
+    m = re.search(r"(?ms)^START GIT INFO\s*\n(.*?)\nEND GIT INFO\s*$", text_wo_node)
+    git_lines: List[str] = []
+    if m:
+        git_block = m.group(1)
+        git_lines = [ln.rstrip() for ln in git_block.splitlines()]
+        # remove the whole block
+        start = m.start()
+        end = m.end()
+        text_wo_git = text_wo_node[:start] + text_wo_node[end:]
+    else:
+        text_wo_git = text_wo_node
+    return node_info, git_lines, text_wo_git
 
 def parse_shell_output(text: str) -> List[RunComparison]:
     lines = [ln.rstrip("\n") for ln in text.splitlines()]
@@ -146,9 +172,24 @@ def consolidate(comps: List[RunComparison]):
 def render_table_pages(pdf: PdfPages, new_run: str, old_runs: List[str], tests: List[str],
                        status_table: Dict[str, Dict[str, str]],
                        node_info: Optional[str],
+                       git_lines: List[str],
                        rows_per_page: int = 32):
-    headers = ["Test", new_run] + old_runs
+    headers = ["Test", "NEW"] + old_runs
     color_map = {"PASS": "#d8f5d0", "FAIL": "#ffd6d6", "MISSING": "#e9e9e9"}
+
+    # Pre-wrap git lines (keep them as-is per line; they’re already “lines”)
+    note_lines = []
+    if node_info:
+        note_lines.append(f"node version: {node_info}")
+    if git_lines:
+        note_lines.append("git info:")
+        # keep lines as-is; optionally wrap very long ones:
+        for g in git_lines:
+            # wrap very long lines so they don’t run off the page
+            wrapped = textwrap.wrap(g, width=110, replace_whitespace=False, drop_whitespace=False)
+            note_lines.extend(wrapped if wrapped else [""])
+    # vertical spacing per note line (empirical)
+    per_note = 0.02
 
     # Split into pages
     for page_idx in range(0, len(tests) or 1, rows_per_page):
@@ -162,29 +203,35 @@ def render_table_pages(pdf: PdfPages, new_run: str, old_runs: List[str], tests: 
 
         fig = plt.figure(figsize=(8.27, 11.69))  # A4
         left, right = 0.04, 0.04
-        top_margin, bottom_margin = 0.16, 0.06  # extra space for title+node
+        # Base top margin for title; add space for note lines on the FIRST table page only
+        top_margin_base = 0.12
+        extra_top = per_note * len(note_lines) if (page_idx == 0 and note_lines) else 0.0
+        top_margin, bottom_margin = top_margin_base + extra_top, 0.06
+
         ax = fig.add_axes([left, bottom_margin, 1.0 - left - right, 1.0 - top_margin - bottom_margin])
         ax.axis("off")
 
         # Title
         title = f"{new_run} vs " + " vs ".join(old_runs) if old_runs else new_run
-        fig.text(0.5, 1.0 - top_margin + 0.03, title, ha="center", va="center",
-                 fontsize=12, fontweight="bold")
-        # Node line (left-aligned)
-        if node_info:
-            fig.text(left, 1.0 - top_margin + 0.005, f"CANN version: {node_info}",
-                     ha="left", va="center", fontsize=10)
+        fig.text(0.5, 1.0 - (top_margin_base * 0.75 + extra_top), title,
+                 ha="center", va="center", fontsize=12, fontweight="bold")
+
+        # Node & Git notes (first table page only)
+        if page_idx == 0 and note_lines:
+            y = 1.0 - (top_margin_base * 0.75 + extra_top) - 0.03
+            for ln in note_lines:
+                fig.text(left, y, ln, ha="left", va="center", fontsize=10, family="monospace")
+                y -= per_note
 
         table = ax.table(cellText=data, colLabels=headers, loc="upper left",
                          cellLoc="left", colLoc="left")
         table.auto_set_font_size(False)
-        # Base font: adjust for #cols and rows on page
+        # Base font: adjust for #cols
         ncols = len(headers)
-        base_font = 9 if (ncols <= 6 and len(chunk) <= rows_per_page) else 8
+        base_font = 9 if (ncols <= 6) else 8
         table.set_fontsize(base_font)
 
         # Row heights
-        rows_count = (len(chunk) + 1) or 1
         for (r, c), cell in table.get_celld().items():
             cell.set_linewidth(0.3)
             if r == 0:
@@ -250,9 +297,9 @@ def render_detail_pages(pdf: PdfPages, detail_lines: List[Tuple[str, str]],
                         title: str = "Artifact changes details"):
     # Pagination settings
     max_lines_per_page = 55
-    base_font = 6
-    header_boost = 4
-    subheader_boost = 3
+    base_font = 9
+    header_boost = 3
+    subheader_boost = 2
 
     # Paginate
     idx = 0
@@ -264,10 +311,8 @@ def render_detail_pages(pdf: PdfPages, detail_lines: List[Tuple[str, str]],
         ax = fig.add_axes([left, bottom_margin, 1.0 - left - right, 1.0 - top_margin - bottom_margin])
         ax.axis("off")
 
-        # Optional repeating small header on continuation pages
-        if page_num == 0:
-            pass  # first page already begins with the header line in the content
-        else:
+        # Continuation header from page 2 onward
+        if page_num >= 1:
             ax.text(0.0, 1.02, f"{title} (cont.)", ha="left", va="bottom",
                     fontsize=base_font + subheader_boost, fontweight="bold")
 
@@ -298,28 +343,19 @@ def render_detail_pages(pdf: PdfPages, detail_lines: List[Tuple[str, str]],
 # ---------------- Main ----------------
 
 def main():
-    ap = argparse.ArgumentParser(description="Multi-page test comparison PDF (colored table + artifact changes details).")
+    ap = argparse.ArgumentParser(description="Multi-page test comparison PDF (colored table + artifact changes details + node/git info).")
     ap.add_argument("-i", "--input", default="-", help="Input file (default: stdin). Use '-' for stdin.")
     ap.add_argument("-o", "--output", default="run_comparison_report.pdf", help="Output PDF filename.")
     args = ap.parse_args()
 
-    # Read raw input and extract node line (first non-empty)
+    # Read raw input and extract node & git info
     if args.input == "-" or args.input == "/dev/stdin":
         raw = sys.stdin.read()
     else:
         with open(args.input, "r", encoding="utf-8", errors="ignore") as f:
             raw = f.read()
 
-    lines = [ln.rstrip("\n") for ln in raw.splitlines()]
-    node_info = ""
-    idx = 0
-    while idx < len(lines) and not lines[idx].strip():
-        idx += 1
-    if idx < len(lines):
-        node_info = lines[idx].strip()
-        rest_text = "\n".join(lines[idx+1:])
-    else:
-        rest_text = ""
+    node_info, git_lines, rest_text = extract_node_and_git(raw)
 
     comps = parse_shell_output(rest_text)
     if not comps:
@@ -330,7 +366,8 @@ def main():
 
     with PdfPages(args.output) as pdf:
         # Table pages first
-        render_table_pages(pdf, new_run, old_runs, tests, status_table, node_info, rows_per_page=32)
+        render_table_pages(pdf, new_run, old_runs, tests, status_table,
+                           node_info=node_info, git_lines=git_lines, rows_per_page=32)
         # Details pages
         detail_lines = build_detail_lines(new_run, old_runs, tests, change_map)
         render_detail_pages(pdf, detail_lines, title="Artifact changes details")
@@ -339,4 +376,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

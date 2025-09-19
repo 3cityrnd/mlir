@@ -51,7 +51,8 @@ if [ $EXIT_CODE -ne 0 ]; then
     exit 1
 fi
 
-docker exec "$CONTAINER_NAME" bash -c "cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg" | grep toolkit_installed_version | awk -F'[:\\]]' '{print $2}' > "$ARTIFACT_DIR/cann_version.log"
+docker exec "$CONTAINER_NAME" bash -lc 'cd /root/some_repo && printf "%s: branch %s, %s\n" "$(git rev-parse --short HEAD)" "$({ git symbolic-ref --short -q HEAD || git name-rev --name-only HEAD 2>/dev/null || echo HEAD; })" "$(git log -1 --pretty=%s)"' > "$ARTIFACT_DIR/git_info.log"
+docker exec "$CONTAINER_NAME" bash -lc "cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg" | grep toolkit_installed_version | awk -F'[:\\]]' '{print $2}' > "$ARTIFACT_DIR/cann_version.log"
 
 echo "Running tests"
 docker exec "$CONTAINER_NAME" bash -lc "/root/ci_run_tests.sh" > "$ARTIFACT_DIR/test_job.log" 2>&1

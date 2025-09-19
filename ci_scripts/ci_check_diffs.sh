@@ -71,6 +71,13 @@ main() {
   # Pre-list tests in new run (once)
   mapfile -t new_tests < <(list_tests "$new_dir")
 
+  # Print git info
+  echo "START GIT INFO"
+  for old_dir in "$@"; do
+    cat $old_dir/git_info.log
+  done
+  echo "END GIT INFO"
+
   for old_dir in "$@"; do
     echo "$(basename "$new_dir") vs $(basename "$old_dir")"
     echo
